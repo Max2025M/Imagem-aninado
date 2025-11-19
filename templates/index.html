@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Avatar Automático</title>
+<script src="https://unpkg.com/wavesurfer.js"></script>
+<style>
+body {margin:0;font-family:Arial,sans-serif;background:#121212;color:#fff;}
+.container{max-width:480px;margin:auto;padding:15px;}
+header{text-align:center;margin-bottom:20px;}
+header h1{font-size:1.8em;color:#7c5cff;margin:0;}
+header p{font-size:0.9em;color:#aaa;margin-top:5px;}
+section{background:#1e1e2f;padding:15px;border-radius:10px;margin-bottom:15px;}
+.preview img{max-width:100%;border-radius:8px;margin-top:10px;}
+audio{width:100%;margin-top:10px;}
+input[type=file], button{width:100%;padding:10px;margin-top:10px;border-radius:8px;border:none;background:#7c5cff;color:#fff;font-weight:bold;cursor:pointer;}
+button:disabled{opacity:0.5;cursor:not-allowed;}
+.waveform-container{margin-top:10px;}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+<h1>Avatar Automático</h1>
+<p>Carregue imagem e áudio, corte o áudio e gere vídeo animado automaticamente</p>
+</header>
+
+<section>
+<h2>Imagem</h2>
+<input type="file" id="imageInput" accept="image/*">
+<div class="preview">
+<img id="imgPreview" src="" style="display:none;">
+<p id="imgEmpty">Nenhuma imagem carregada</p>
+</div>
+</section>
+
+<section>
+<h2>Áudio</h2>
+<input type="file" id="audioInput" accept="audio/*">
+<div class="waveform-container" id="waveform"></div>
+<audio id="audioPreview" controls></audio>
+<div>
+<label>Início(s): <input type="number" id="startTime" step="0.1" value="0"></label>
+<label>Fim(s): <input type="number" id="endTime" step="0.1" value="0"></label>
+</div>
+</section>
+
+<section>
+<button id="generateBtn">Gerar vídeo</button>
+<div id="statusBox" style="margin-top:10px; display:none;">
+<p>Status: <span id="statusText">Aguardando...</span></p>
+</div>
+<div id="resultArea" style="display:none; margin-top:10px;">
+<h3>Vídeo gerado</h3>
+<video id="outVideo" controls style="width:100%;"></video>
+<a id="downloadLink" href="#" download style="display:block; margin-top:5px; text-align:center; background:#4fa3ff; color:#fff; padding:10px; border-radius:8px; text-decoration:none;">Baixar MP4</a>
+</div>
+</section>
+</div>
+
+<script>
+let currentImagePath=null;
+let currentAudioPath=null;
+let wavesurfer = WaveSurfer.create({container:'#waveform',waveColor:'#7c5cff',progressColor:'#4fa3ff',cursorColor:'#fff',height:80});
+
+function uploadFile(url,file,fieldName='file'){
+    const fd = new FormData(); fd.append(fieldName,file);
+    return fetch(url,{method:'POST',body:fd}).then(res=>res.json());
+}
+
+const imageInput=document.getElementById('imageInput');
+const imgPreview=document.getElementById('imgPreview');
+const imgEmpty=document.getElementById('imgEmpty');
+imageInput.addEventListener('change',async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    imgEmpty.style.display='none'; imgPreview.style.display='block'; imgPreview.src=URL.createObjectURL(f);
+    const data=await uploadFile('/upload_image',f,'image'); if(data.img_path) currentImagePath=data.img_path;
+});
+
+const audioInput=document.getElementById('audioInput');
+const audioPreview=document.getElementById('audioPreview');
+const startTime=document.getElementById('startTime');
+const endTime=document.getElementById('endTime');
+audioInput.addEventListener('change',async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const data=await uploadFile('/upload_audio',f,'audio'); if(data.audio_path) currentAudioPath=data.audio_path;
+    const url=URL.createObjectURL(f); wavesurfer.load(url); audioPreview.src=url;
+    wavesurfer.on('ready',()=>{startTime.value=0;endTime.value=wavesurfer.getDuration().toFixed(2);});
+});
+
+const generateBtn=document.getElementById('generateBtn');
+const statusBox=document.getElementById('statusBox');
+const statusText=document.getElementById('statusText');
+const resultArea=document.getElementById('resultArea');
+const outVideo=document.getElementById('outVideo');
+const downloadLink=document.getElementById('downloadLink');
+
+generateBtn.addEventListener('click',async()=>{
+    if(!currentImagePath||!currentAudioPath){alert('Carregue imagem e áudio antes');return;}
+    const form=new FormData();
+    form.append('image_path',currentImagePath);
+    form.append('audio_path',currentAudioPath);
+    form.append('start',startTime.value);
+    form.append('end',endTime.value);
+    const resp=await fetch('/generate',{method:'POST',body:form});
+    const j=await resp.json(); if(!j.job){alert('Erro');return;}
+    statusBox.style.display='block'; statusText.innerText='Gerando vídeo...'; resultArea.style.display='none';
+    const interval=setInterval(async()=>{
+        const sres=await fetch('/status/'+j.job); const sjson=await sres.json();
+        statusText.innerText=sjson.status;
+        if(sjson.status==='done'){clearInterval(interval); resultArea.style.display='block'; outVideo.src='/output/'+j.job; downloadLink.href='/output/'+j.job;}
+        if(sjson.status==='error'){clearInterval(interval); statusText.innerText='Erro: '+sjson.error;}
+    },1000);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+Flask==2.3.2
+numpy
+opencv-python
+moviepy
+pydub
+librosa
+soundfile
+mediapipe
